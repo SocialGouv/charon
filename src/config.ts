@@ -31,7 +31,7 @@ export const config = {
       port: ensureEnvVar("CHARON_PROXY_PORT", Number, 4501),
     },
   },
-  providers: ["github", "moncomptepro", "moncompteprotest"] as const,
+  providers: ["github", "moncomptepro", "moncompteprotest", "fabriqueKeycloak"] as const,
 } as const;
 
 export const envClientConfig = times(10)
