@@ -22,7 +22,7 @@ jobs:
           images: |
             ghcr.io/${{ github.repository }}
           tags: |
-            type=schedule
+            type=sha
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
