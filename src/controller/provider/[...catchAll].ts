@@ -13,6 +13,8 @@ import { type ProviderMiddleware } from "../type";
  * This is the main logic of Charon.
  *
  * It will catch, validate, and forward request from a client to a provider depending of the config.
+ *
+ * Supports both authorization flows (redirect_uri) and OIDC logout flows (post_logout_redirect_uri).
  */
 export const catchAllRoutes =
   (excludedPaths: string[]): ProviderMiddleware =>
@@ -26,15 +28,27 @@ export const catchAllRoutes =
         return;
       }
       const method = ctx.request.method;
-      const { redirect_uri = ctx.session!.originalRedirectUri, ...others } = (
+      const allParams = (
         method === "GET" ? ctx.request.query : ctx.request.body
       ) as Record<string, string>;
+
+      // Detect OIDC logout flow by the presence of post_logout_redirect_uri
+      const isLogout = "post_logout_redirect_uri" in allParams;
+
+      // Extract the URI to validate: post_logout_redirect_uri for logout, redirect_uri for auth
+      const clientUri = isLogout
+        ? allParams.post_logout_redirect_uri
+        : allParams.redirect_uri ?? ctx.session!.originalRedirectUri;
+
+      const { redirect_uri: _ignoreRedirectUri, post_logout_redirect_uri: _ignorePostLogout, ...others } = allParams;
+
       const clients = getCharonClients();
 
       logServer("Middleware incoming request", pathname, method, ctx.session, {
         cookies: ctx.headers.cookie,
         authorization: ctx.header.authorization,
-        redirect_uri,
+        clientUri,
+        isLogout,
         clients,
         ...others,
       });
@@ -45,21 +59,31 @@ export const catchAllRoutes =
         }
         const shouldPass = client.wildcards.some(wildcard => {
           const regex = wildcardToRegex(wildcard);
-          return regex.test(redirect_uri);
+          return regex.test(clientUri);
         });
-        logServer({ shouldPass, redirect_uri });
+        logServer({ shouldPass, clientUri, isLogout });
         if (shouldPass) {
           const provider = getProvider(client.provider);
 
-          const params = {
-            ...others,
-            redirect_uri: config.app.charonUrl("/oauth/callback"),
-          };
-
+          // Store session for the callback to redirect back to the original URI
           ctx.session!.provider = client.provider;
           ctx.session!.client = client;
-          ctx.session!.originalRedirectUri = redirect_uri;
+          ctx.session!.originalRedirectUri = clientUri;
           ctx.session!.params = others;
+
+          // Build params for the provider:
+          // - Auth flow: rewrite redirect_uri to Charon's /oauth/callback
+          // - Logout flow: rewrite post_logout_redirect_uri to Charon's /oauth/logout-callback
+          const params = isLogout
+            ? {
+                ...others,
+                post_logout_redirect_uri: config.app.charonUrl("/oauth/logout-callback"),
+              }
+            : {
+                ...others,
+                redirect_uri: config.app.charonUrl("/oauth/callback"),
+              };
+
           const headers: Record<string, string | string[]> = {};
           if (ctx.headers.authorization) {
             headers["Authorization"] = ctx.headers.authorization;
@@ -73,7 +97,7 @@ export const catchAllRoutes =
 
           if (method === "POST") {
             const redirectURL = provider.getIssuer(pathname);
-            logServer("POST REDIRECT", { redirectURL, ctxsession: ctx.session, params });
+            logServer("POST REDIRECT", { redirectURL, ctxsession: ctx.session, params, isLogout });
             const response = await axios.post<unknown>(redirectURL, params, {
               headers,
             });
@@ -83,7 +107,7 @@ export const catchAllRoutes =
           } else if (method === "GET") {
             const redirectURL = provider.getIssuer(pathname, params);
 
-            logServer("GET REDIRECT", { redirectURL, ctxsession: ctx.session, params });
+            logServer("GET REDIRECT", { redirectURL, ctxsession: ctx.session, params, isLogout });
 
             Object.entries(headers).forEach(([key, value]) => {
               ctx.set(key, value);

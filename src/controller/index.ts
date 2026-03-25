@@ -7,6 +7,7 @@ import { prepareProviderRoutes } from "./provider/prepare";
 import { wellKnownRoute } from "./provider/well-known";
 import { healthcheckRoute } from "./root/healthcheck";
 import { landingPage } from "./root/landing";
+import { logoutCallbackRoute } from "./root/logoutCallback";
 import { oauthCallbackRoute } from "./root/oauthCallback";
 import { type ProviderRouterState } from "./type";
 
@@ -24,6 +25,7 @@ export const controller = (app: Koa) => {
     return next();
   });
   router.get("/oauth/callback", oauthCallbackRoute);
+  router.get("/oauth/logout-callback", logoutCallbackRoute);
   router.get("/", landingPage);
   router.all(config.app.healthcheck.path, healthcheckRoute);
 
