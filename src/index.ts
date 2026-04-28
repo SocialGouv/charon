@@ -15,6 +15,7 @@ declare module "koa-session" {
   interface Session {
     client: CharonClient;
     originalRedirectUri: string;
+    originalPostLogoutRedirectUri?: string;
     params: Record<string, string | string[]>;
     provider: ProviderType;
   }
